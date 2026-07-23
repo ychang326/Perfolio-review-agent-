@@ -5,6 +5,8 @@ import sys
 from mcp.server.fastmcp import FastMCP
 from dotenv import load_dotenv
 
+from mcp_servers.instrument_store import get_instrument_store
+
 # ==============================================================================
 # Environment
 # ==============================================================================
@@ -33,53 +35,15 @@ def _float_fields(row: dict, keys: list[str]) -> dict:
     return row
 
 
-# ==============================================================================
-# Instrument master (in-memory catalog for search / factsheet)
-# ==============================================================================
-INSTRUMENT_CATALOG = {
-    "EQ_AAPL": {
-        "name": "Apple Inc.",
-        "keywords": ["aapl", "apple", "equity", "tech", "stock"],
-        "asset_class": "Equity",
-        "sector": "Technology",
-        "currency": "USD",
-    },
-    "EQ_MSFT": {
-        "name": "Microsoft Corp.",
-        "keywords": ["msft", "microsoft", "equity", "tech", "stock"],
-        "asset_class": "Equity",
-        "sector": "Technology",
-        "currency": "USD",
-    },
-    "EQ_JPM": {
-        "name": "JPMorgan Chase & Co.",
-        "keywords": ["jpm", "jpmorgan", "equity", "financials", "bank"],
-        "asset_class": "Equity",
-        "sector": "Financials",
-        "currency": "USD",
-    },
-    "BD_UST10Y": {
-        "name": "US Treasury 10Y Note ETF",
-        "keywords": ["ust", "treasury", "bond", "fixed income", "duration"],
-        "asset_class": "Fixed Income",
-        "sector": "Government",
-        "currency": "USD",
-    },
-    "MF_SP500": {
-        "name": "S&P 500 Index Fund",
-        "keywords": ["sp500", "index", "fund", "mutual fund", "equity"],
-        "asset_class": "Fund",
-        "sector": "Broad Market",
-        "currency": "USD",
-    },
-    "CASH_USD": {
-        "name": "USD Cash",
-        "keywords": ["cash", "usd", "money market", "liquidity"],
-        "asset_class": "Cash",
-        "sector": "Cash",
-        "currency": "USD",
-    },
-}
+def _milvus_error(exc: Exception) -> str:
+    return json.dumps({
+        "status": "error",
+        "message": (
+            f"Instrument Milvus store unavailable: {exc}. "
+            "Set MILVUS_HOST / DASHSCOPE_API_KEY, then run: "
+            "python -m test.ingest_instruments"
+        ),
+    }, ensure_ascii=False)
 
 
 # ==============================================================================
@@ -87,148 +51,104 @@ INSTRUMENT_CATALOG = {
 # ==============================================================================
 
 @mcp.tool()
-def list_instruments() -> str:
+def list_instruments(limit: int = 50) -> str:
     """
-    List instruments available in the research / factsheet catalog
+    List instruments from the Milvus research catalog
     (not the client's live holdings). Use when the user asks which
     instruments can be looked up.
-    """
-    items = []
-    for instrument_id, info in INSTRUMENT_CATALOG.items():
-        items.append({
-            "instrument_id": instrument_id,
-            "name": info["name"],
-            "asset_class": info["asset_class"],
-            "sector": info["sector"],
-            "currency": info["currency"],
-        })
 
-    return json.dumps({
-        "status": "success",
-        "message": "Instruments available in the catalog:",
-        "data": items,
-    }, ensure_ascii=False)
+    Args:
+        limit: Max rows to return (default 50).
+    """
+    try:
+        store = get_instrument_store()
+        items = store.list_instruments(limit=limit)
+        if not items:
+            return json.dumps({
+                "status": "not_found",
+                "message": (
+                    "Milvus collection wm_instruments is empty. "
+                    "Run: python -m test.ingest_instruments"
+                ),
+            }, ensure_ascii=False)
+        return json.dumps({
+            "status": "success",
+            "message": "Instruments available in the Milvus catalog:",
+            "data": items,
+            "count": len(items),
+        }, ensure_ascii=False)
+    except Exception as e:
+        return _milvus_error(e)
 
 
 @mcp.tool()
-def search_instruments(keyword: str) -> str:
+def search_instruments(keyword: str, top_k: int = 8) -> str:
     """
-    Fuzzy-search instruments by ticker, name, asset class, or sector.
+    Semantic search over the Milvus instrument master (ticker, name,
+    asset class, sector, keywords, factsheet text).
 
     Args:
         keyword: Natural-language or ticker keyword, e.g. "AAPL", "treasury", "tech".
+        top_k: Max ANN hits to return (default 8).
     """
-    results = []
-    kw = keyword.lower()
-
-    for instrument_id, info in INSTRUMENT_CATALOG.items():
-        haystacks = [
-            info["name"].lower(),
-            info["asset_class"].lower(),
-            info["sector"].lower(),
-            instrument_id.lower(),
-            *info["keywords"],
-        ]
-        if any(kw in h for h in haystacks):
-            results.append({
-                "instrument_id": instrument_id,
-                "name": info["name"],
-                "asset_class": info["asset_class"],
-                "sector": info["sector"],
-                "currency": info["currency"],
-            })
-
-    if not results:
-        return json.dumps({
-            "status": "not_found",
-            "message": f"No instrument matching '{keyword}'.",
-            "recommendation": {
-                "instrument_id": "MF_SP500",
-                "name": "S&P 500 Index Fund",
-            },
-        }, ensure_ascii=False)
-
-    return json.dumps({"status": "success", "data": results}, ensure_ascii=False)
+    try:
+        store = get_instrument_store()
+        results = store.search(keyword, top_k=top_k)
+        if not results:
+            return json.dumps({
+                "status": "not_found",
+                "message": f"No instrument matching '{keyword}' in Milvus.",
+                "recommendation": {
+                    "instrument_id": "MF_SP500",
+                    "name": "S&P 500 Index Fund",
+                },
+            }, ensure_ascii=False)
+        return json.dumps({"status": "success", "data": results}, ensure_ascii=False)
+    except Exception as e:
+        return _milvus_error(e)
 
 
 @mcp.tool()
 def get_instrument_factsheet(instrument_id: str, user_id: str = "") -> str:
     """
-    Return disclosure / factsheet summary for an instrument.
+    Return disclosure / factsheet summary for an instrument from Milvus.
     Prefer calling search_instruments first to resolve instrument_id.
 
     Args:
         instrument_id: Canonical id, e.g. "EQ_AAPL", "BD_UST10Y".
         user_id: [system-injected] client id for audit trail.
     """
-    factsheets = {
-        "EQ_AAPL": {
-            "title": "Apple Inc. (AAPL) — Equity Factsheet",
-            "summary": "Large-cap US technology equity. Key risks: valuation, single-name concentration, FX for non-USD base.",
-            "risk_disclosure": "Past performance is not indicative of future results. Not investment advice.",
-            "asset_class": "Equity",
-            "benchmark": "S&P 500",
-        },
-        "EQ_MSFT": {
-            "title": "Microsoft Corp. (MSFT) — Equity Factsheet",
-            "summary": "Large-cap US technology equity with cloud/software exposure.",
-            "risk_disclosure": "Past performance is not indicative of future results. Not investment advice.",
-            "asset_class": "Equity",
-            "benchmark": "S&P 500",
-        },
-        "EQ_JPM": {
-            "title": "JPMorgan Chase (JPM) — Equity Factsheet",
-            "summary": "US financials equity. Sensitive to rates and credit cycle.",
-            "risk_disclosure": "Past performance is not indicative of future results. Not investment advice.",
-            "asset_class": "Equity",
-            "benchmark": "S&P 500 Financials",
-        },
-        "BD_UST10Y": {
-            "title": "US Treasury 10Y Note ETF — Fixed Income Factsheet",
-            "summary": "Duration-sensitive government bond exposure. Rate-up scenarios may reduce NAV.",
-            "risk_disclosure": "Bond prices move inversely with yields. Not investment advice.",
-            "asset_class": "Fixed Income",
-            "benchmark": "Bloomberg US Treasury 7-10Y",
-        },
-        "MF_SP500": {
-            "title": "S&P 500 Index Fund — Fund Factsheet",
-            "summary": "Broad US large-cap equity index exposure. Market beta approximately 1.",
-            "risk_disclosure": "Index funds can lose value. Not investment advice.",
-            "asset_class": "Fund",
-            "benchmark": "S&P 500",
-        },
-        "CASH_USD": {
-            "title": "USD Cash — Liquidity Sleeve",
-            "summary": "Cash / money-market style liquidity buffer.",
-            "risk_disclosure": "Cash may earn low real yield. Not investment advice.",
-            "asset_class": "Cash",
-            "benchmark": "SOFR",
-        },
-    }
+    try:
+        store = get_instrument_store()
+        sheet = store.get_by_id(instrument_id)
+        if not sheet:
+            return json.dumps({
+                "status": "not_found",
+                "message": f"No factsheet for instrument_id '{instrument_id}' in Milvus.",
+                "recommendation": {"instrument_id": "MF_SP500", "name": "S&P 500 Index Fund"},
+            }, ensure_ascii=False)
 
-    sheet = factsheets.get(instrument_id)
-    if not sheet:
         return json.dumps({
-            "status": "not_found",
-            "message": f"No factsheet for instrument_id '{instrument_id}'.",
-            "recommendation": {"instrument_id": "MF_SP500", "name": "S&P 500 Index Fund"},
+            "status": "success",
+            "data": {
+                "instrument_id": sheet["instrument_id"],
+                "ticker": sheet.get("ticker"),
+                "name": sheet.get("name"),
+                "title": sheet.get("title"),
+                "summary": sheet.get("summary"),
+                "risk_disclosure": sheet.get("risk_disclosure"),
+                "asset_class": sheet.get("asset_class"),
+                "sector": sheet.get("sector"),
+                "currency": sheet.get("currency"),
+                "benchmark": sheet.get("benchmark"),
+                "factsheet_url": (
+                    f"https://wm.internal/factsheets/{instrument_id}?client={user_id}"
+                    if user_id else f"https://wm.internal/factsheets/{instrument_id}"
+                ),
+            },
         }, ensure_ascii=False)
-
-    return json.dumps({
-        "status": "success",
-        "data": {
-            "instrument_id": instrument_id,
-            "title": sheet["title"],
-            "summary": sheet["summary"],
-            "risk_disclosure": sheet["risk_disclosure"],
-            "asset_class": sheet["asset_class"],
-            "benchmark": sheet["benchmark"],
-            "factsheet_url": (
-                f"https://wm.internal/factsheets/{instrument_id}?client={user_id}"
-                if user_id else f"https://wm.internal/factsheets/{instrument_id}"
-            ),
-        },
-    }, ensure_ascii=False)
+    except Exception as e:
+        return _milvus_error(e)
 
 
 @mcp.tool()

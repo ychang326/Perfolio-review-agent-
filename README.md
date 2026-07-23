@@ -90,7 +90,8 @@
 │ Redis 短期会话                  │ │ FastMCP wm_portfolio       │
 │ Milvus 长期偏好                 │ │ MySQL 持仓/流水/风险表      │
 │ PreferenceExtractor 异步抽取    │ │ Milvus wm_portfolio_docs   │
-└───────────────────────────────┘ │ Neo4j 知识图谱（可选）       │
+└───────────────────────────────┘ │ Milvus wm_instruments       │
+                                  │ Neo4j 知识图谱（可选）       │
                                   └───────────────────────────┘
 ```
 
@@ -124,8 +125,8 @@
 | `get_portfolio_holdings(user_id, limit)`           | 当前持仓列表（position_id、权重、市值等）   |
 | `get_portfolio_transactions(user_id, limit)`       | 成交/流水（Buy/Sell/Dividend/Fee） |
 | `analyze_position_risk(position_id, user_id)`      | 近 7 日风险代理指标 + `diagnosis`    |
-| `list_instruments` / `search_instruments`          | 标的目录与模糊检索                    |
-| `get_instrument_factsheet(instrument_id, user_id)` | 说明书/披露摘要                     |
+| `list_instruments` / `search_instruments`          | 标的目录与 **Milvus ANN** 语义检索（collection: `wm_instruments`） |
+| `get_instrument_factsheet(instrument_id, user_id)` | 说明书/披露摘要（Milvus 标量过滤按 `instrument_id`）          |
 
 
 统一返回 JSON 字符串外壳：`status` / `data` / `message`；`user_id` 由 `UserIdInjector` 强制注入，防止越权。
@@ -134,6 +135,8 @@
 
 - MySQL 初始化脚本：`agent/database/init_mock_data.sql`  
   - `portfolio_holdings` / `portfolio_transactions` / `position_risk_daily`
+- 标的主数据：`mock_data/instruments/instruments.json` → Milvus collection `wm_instruments`  
+  - 入库：`cd agent && python -m test.ingest_instruments`（需可用的 `MILVUS_HOST` + `DASHSCOPE_API_KEY` embedding）
 - 教育文档：`mock_data/*.md` → 向量库 `wm_portfolio_docs`  
 - 语义缓存预热：`app/preload_cache.py`（WM FAQ）
 
@@ -200,10 +203,11 @@ agent/
     risk_agent.py
     user_id_injector.py
   mcp_servers/wm_portfolio_server.py
+  mcp_servers/instrument_store.py   # Milvus 标的主数据
   core/workflow/graph_manager.py
 app/            # FastAPI 接入与语义缓存预热
 front/          # Vue 聊天前端
-mock_data/      # WM 教育/披露 Markdown
+mock_data/      # WM 教育 Markdown + instruments/*.json
 ```
 
 ---

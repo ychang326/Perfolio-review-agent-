@@ -21,10 +21,13 @@ def run():
     print("\n--- analyze_position_risk(pos-user1001-aapl) ---")
     print(analyze_position_risk(position_id="pos-user1001-aapl", user_id="user_1001"))
 
-    print("\n--- search_instruments('AAPL') ---")
+    print("\n--- search_instruments('AAPL') [Milvus ANN] ---")
     print(search_instruments(keyword="AAPL"))
 
-    print("\n--- get_instrument_factsheet('EQ_AAPL') ---")
+    print("\n--- search_instruments('duration-sensitive treasury') ---")
+    print(search_instruments(keyword="duration-sensitive treasury bond"))
+
+    print("\n--- get_instrument_factsheet('EQ_AAPL') [Milvus] ---")
     print(get_instrument_factsheet(instrument_id="EQ_AAPL", user_id="user_1001"))
 
 
