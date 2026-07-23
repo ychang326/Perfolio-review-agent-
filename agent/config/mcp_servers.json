@@ -2,7 +2,7 @@
   "mcpServers": {
     "wm_portfolio": {
       "command": "python",
-      "args": ["-m", "mcp_servers.cloud_platform_server"],
+      "args": ["-m", "mcp_servers.wm_portfolio_server"],
       "cwd": ".",
       "transport": "stdio"
     }

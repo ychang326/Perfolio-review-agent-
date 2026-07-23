@@ -1,5 +1,5 @@
 """Smoke test for WM portfolio MCP tools (requires DB + seeded mock data)."""
-from mcp_servers.cloud_platform_server import (
+from mcp_servers.wm_portfolio_server import (
     get_portfolio_transactions,
     get_portfolio_holdings,
     analyze_position_risk,

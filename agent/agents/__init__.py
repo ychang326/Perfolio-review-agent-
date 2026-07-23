@@ -1,23 +1,19 @@
 """Agent implementations."""
 
 from .orchestrator import OrchestratorAgent
-from .product_agent import KnowledgeAgentNode, ProductAgentNode
-from .billing_agent import HoldingsAgentNode, BillingAgentNode
-from .promotion_agent import AttributionAgentNode, PromotionAgentNode
-from .recommendation_agent import PerformanceAgent, RecommendationAgent
-from .finops_agent import RiskAgentNode, FinOpsAgentNode
+from .knowledge_agent import KnowledgeAgentNode
+from .holdings_agent import HoldingsAgentNode
+from .attribution_agent import AttributionAgentNode
+from .performance_agent import PerformanceAgentNode
+from .risk_agent import RiskAgentNode
+from .user_id_injector import UserIdInjector
 
 __all__ = [
     "OrchestratorAgent",
     "KnowledgeAgentNode",
     "HoldingsAgentNode",
     "AttributionAgentNode",
-    "PerformanceAgent",
+    "PerformanceAgentNode",
     "RiskAgentNode",
-    # backward-compatible aliases
-    "ProductAgentNode",
-    "BillingAgentNode",
-    "PromotionAgentNode",
-    "RecommendationAgent",
-    "FinOpsAgentNode",
+    "UserIdInjector",
 ]

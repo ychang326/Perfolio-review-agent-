@@ -1,31 +1,27 @@
-import os
-import sys
-from pathlib import Path
-# Caller (main.py) is expected to set sys.path.
-
 import asyncio
-from typing import Literal
 
 from langgraph.graph import StateGraph, START, END
 from core.workflow.state import AgentState
 from agents.orchestrator import OrchestratorAgent
-from agents.product_agent import KnowledgeAgentNode
-from agents.billing_agent import HoldingsAgentNode
-from agents.promotion_agent import AttributionAgentNode
-from agents.recommendation_agent import PerformanceAgent
-from agents.finops_agent import RiskAgentNode
+from agents.knowledge_agent import KnowledgeAgentNode
+from agents.holdings_agent import HoldingsAgentNode
+from agents.attribution_agent import AttributionAgentNode
+from agents.performance_agent import PerformanceAgentNode
+from agents.risk_agent import RiskAgentNode
+
 
 class AgentGraphManager:
     """
     Assembles the LangGraph multi-agent graph.
     Supports holdings → risk handoff via metadata.is_risk_workflow.
     """
+
     def __init__(self):
         self.orchestrator = OrchestratorAgent()
         self.knowledge_node = KnowledgeAgentNode()
         self.holdings_node = HoldingsAgentNode()
         self.attribution_node = AttributionAgentNode()
-        self.performance_node = PerformanceAgent()
+        self.performance_node = PerformanceAgentNode()
         self.risk_node = RiskAgentNode()
 
     def _route_condition(self, state: AgentState) -> str:
@@ -33,10 +29,7 @@ class AgentGraphManager:
         return state.get("next_agent", "knowledge_agent")
 
     def _holdings_post_condition(self, state: AgentState) -> str:
-        """
-        After holdings_agent:
-        if risk workflow → risk_agent; else END.
-        """
+        """After holdings_agent: if risk workflow → risk_agent; else END."""
         if state.get("metadata", {}).get("is_risk_workflow"):
             return "risk_agent"
         return END
@@ -62,7 +55,7 @@ class AgentGraphManager:
                 "holdings_agent": "holdings_agent",
                 "attribution_agent": "attribution_agent",
                 "performance_agent": "performance_agent",
-            }
+            },
         )
 
         builder.add_conditional_edges(
@@ -70,8 +63,8 @@ class AgentGraphManager:
             self._holdings_post_condition,
             {
                 "risk_agent": "risk_agent",
-                END: END
-            }
+                END: END,
+            },
         )
 
         builder.add_edge("knowledge_agent", END)
@@ -81,32 +74,34 @@ class AgentGraphManager:
 
         return builder.compile()
 
+
 async def test_graph():
     manager = AgentGraphManager()
     graph = manager.build_graph()
 
     print("Starting WM Portfolio multi-agent system...")
     print("=" * 60)
-    
+
     state: AgentState = {
         "messages": [("user", "What is asset allocation?")],
         "user_id": "user_1001",
         "session_id": "test_session_1",
         "memory_context": "",
         "next_agent": "",
-        "metadata": {}
+        "metadata": {},
     }
     print(f"User: {state['messages'][0][1]}")
-    
+
     result = await graph.ainvoke(state)
     print(f"AI: {result['messages'][-1].content}\n")
 
     state["messages"] = result["messages"]
     state["messages"].append(("user", "Show my current holdings."))
-    
+
     print(f"User: {state['messages'][-1][1]}")
     result = await graph.ainvoke(state)
     print(f"AI: {result['messages'][-1].content}\n")
+
 
 if __name__ == "__main__":
     asyncio.run(test_graph())
