@@ -178,19 +178,8 @@ cd front/cloud_agent && npm run dev
 - **不提供**买卖建议、收益保证或投资推荐话术。  
 - 风险诊断标签（如 `RISK_ELEVATED`）为系统代理指标结论，需结合正式风控口径解读。
 
----
 
-## 五、与原 CloudAgent 的关系
-
-本仓库由企业级云平台智能客服（产品咨询 / 账单 / FinOps / 推广）**业务层重构**而来：
-
-- **保留**：LangGraph 编排骨架、`AgentState`、Memory、MCP 客户端、FastAPI SSE、语义缓存框架。  
-- **替换**：Agent 路由与英文 Prompt、MCP 工具语义与表结构、mock 文档、前端场景文案、预热 FAQ。  
-- **移除**：云产品推广生图（`generate_ai_poster`）等与 WM 无关能力。
-
----
-
-## 六、目录速览
+## 五、目录速览
 
 ```text
 agent/
